@@ -20,8 +20,12 @@
 #---
 # Load data ####
 #---
+library(here)
 library(tidyverse)
-mydat0 <- read_csv("natl2018us.csv")
+library(data.table)
+mydat0 <- read_csv(here("data", "natl2018us.csv"))
+mydat0 <- fread(here("data", "natl2018us.csv"))
+
 # Takes a long time to load
 dim(mydat0)   # 3801534     240
 names(mydat0) <- toupper(names(mydat0))
@@ -45,8 +49,9 @@ table(mydat0$BWTR4,    exclude = NULL)
 # Drop those with missing gestational age, preterm status, or birth weight
 
 nrow(mydat0)
-mydat0 <- mydat0 %>% 
-  filter(COMBGEST != 99 & GESTREC3 != 3 & BWTR4 != 4)
+# mydat0 <- mydat0 %>% 
+#   filter(COMBGEST != 99 & GESTREC3 != 3 & BWTR4 != 4)
+mydat0 <- mydat0[COMBGEST != 99 & GESTREC3 != 3 & BWTR4 != 4, ]
 nrow(mydat0) # 3796815
 
 set.seed(4504273)
