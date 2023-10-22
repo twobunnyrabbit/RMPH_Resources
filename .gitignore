@@ -4,4 +4,4 @@
 .Ruserdata
 *.html
 data/
-datasets/
+datasets/.git.nosync/
