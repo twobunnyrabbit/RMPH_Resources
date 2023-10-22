@@ -5,3 +5,4 @@
 *.html
 data/
 datasets/.git.nosync/
+.git.nosync/
