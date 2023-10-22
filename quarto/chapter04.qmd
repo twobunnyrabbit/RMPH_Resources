@@ -1,0 +1,323 @@
+---
+title: "Chapter 4 - Simple linear regression"
+format: 
+  html:
+    self-contained: true
+    toc: true
+---
+
+```{r}
+#| message: false
+#| echo: false
+
+library(here)
+library(tidyverse)
+library(car)
+library(effects)
+library(psych)
+
+load(here('datasets/nhanes1718_adult_fast_sub_rmph.Rdata'))
+nhanesf <- nhanes_adult_fast_sub
+```
+
+## Example 4.1
+Examine the relationship between fasting blood glucose and waist circumference
+- `LBDGLUSI`
+```{r}
+nhanesf |> 
+  ggplot(aes(x=LBDGLUSI)) +
+  geom_histogram() +
+  geom_vline(xintercept = mean(nhanesf$LBDGLUSI), na.rm=TRUE, color='red')
+```
+```{r}
+nhanesf |> 
+  ggplot(aes(x=LBDGLUSI)) +
+  geom_density() +
+  geom_vline(xintercept = mean(nhanesf$LBDGLUSI), na.rm=TRUE, color='red')
+```
+Mean fasting glucose is:
+```{r}
+mean(nhanesf$LBDGLUSI, na.rm=TRUE)
+```
+What is the correlation between fasting glucose (`LBDGLUSI`) and waist circumference (`BMXWAIST`)?
+
+```{r}
+nhanesf |> 
+  select(LBDGLUSI, BMXWAIST) |> 
+  cor(use="complete.obs")
+```
+
+Scatterplot of fasting glucose on waist circumference
+```{r}
+nhanesf |> 
+  ggplot(aes(x=BMXWAIST, y=LBDGLUSI)) +
+  geom_point(alpha=0.3) +
+  geom_smooth(method="lm", se=FALSE) +
+  labs(x="Waist circumference (cm)", y="Fasting glucose (mmol/L)")
+```
+
+The plot shows E(FG|WC), meaning the expected value of fasting glucose given the waist circumference. The blue fitted line demonstrates the change in fasting glucose with changes in waist circumference. 
+
+The expected value of fasting glucose increases with waist circumference.
+
+## Example 4.2
+
+What is the relationship between fasting blood glucose and smoking status?
+- `LBDGLUSI`
+- `smoker`
+```{r}
+nhanesf |> 
+  ggplot(aes(x=smoker, y=LBDGLUSI)) +
+  geom_point(alpha=0.3) +
+  geom_point(data=nhanesf |> 
+               group_by(smoker) |> 
+               summarise(mean_fbg=mean(LBDGLUSI, na.rm=TRUE)), aes(x=smoker, y=mean_fbg), color="red", size=2) +
+  geom_line(data=nhanesf |> 
+               group_by(smoker) |> 
+               summarise(mean_fbg=mean(LBDGLUSI, na.rm=TRUE)), aes(x=smoker, y=mean_fbg, group=1), color="salmon", size=1) +
+  theme_bw() +
+  labs(x="Smoking status", y="Fasting glucose (mmol/L)")
+```
+What is the mean fasting glucose among smoking status?
+```{r}
+Tapply(LBDGLUSI ~ smoker, mean, data=nhanesf) |> 
+  round(2)
+```
+
+```{r}
+nhanesf |> 
+  group_by(smoker) |> 
+  summarise(d = list(describe(LBDGLUSI))) |> 
+  unnest(d) |> 
+  select(smoker, n, mean, sd, median, trimmed, min, max, skew, kurtosis)
+```
+The data are extremely right skewed with skewness of 4.2, 2.9 and 3.6.
+
+## 4.3 SLR with a continuous predictor
+
+```{r}
+fit.ex4.1 <- lm(LBDGLUSI ~ BMXWAIST, data=nhanesf)
+S(fit.ex4.1)
+```
+```{r}
+coef(fit.ex4.1)
+```
+
+### Example of report
+
+Linear regression was used to test the association between fasting glucose (mmol/L) and waist circumference (cm) using data from 965 adults from NHANES 2017-2018. 8.71% of the variation in fasting glucose was explained by waist circumference (R2 = .0871). There was a significant positive association between fasting glucose and waist circumference (B = 0.0278; 95% CI = 0.0221, 0.0334; p < .001). On average, for every 1-cm difference in waist circumference, adults differ in mean fasting glucose by 0.0278 mmol/L. Table 4.1 summarizes the regression results.
+
+```{r}
+library(gtsummary)
+
+fit.ex4.1 |> 
+  tbl_regression(intercept = TRUE,
+                 estimate_fun = \(x) style_sigfig(x, digits=4),
+                 pvalue_fun = \(x) style_pvalue(x, digits=3)) |> 
+  modify_caption("Regression of fasting glucose (mmol/L) on waist circumference")
+```
+
+```{r}
+# fit.ex4.1 |> 
+#   tbl_regression(intercept = TRUE,
+#                  estimate_fun = \(x) style_sigfig(x, digits=4),
+#                  pvalue_fun = \(x) style_pvalue(x, digits=3)) |> 
+#   modify_caption("Regression of fasting glucose (mmol/L) on waist circumference") |> 
+#   as_flex_table() |> 
+#   flextable::save_as_docx(path=here::here('table1.docx'))
+```
+
+
+Using effects package to plot the predictor effect.
+```{r}
+predictorEffects(fit.ex4.1) |> 
+  plot(main="Fasting glucose and waist circumference",
+       axes=list(grid=TRUE,
+                 x=list(rug=FALSE, BMXWAIST=list(lab="Waist circumference (cm)")),
+                 y=list(lab="Fasting glucose (mmol/L)")))
+```
+Labeling the x-axis is not intuitive. It needs to be specified as a sub-arguement using the predictor name is an argument to the `x` argument of the axes group argument.
+
+## 4.3.2 Centering a continuous predictor
+
+The purpose of centering is to make the intercept interpretable as the mean outcome when the predictor is at its centering value.
+
+```{r}
+mBMXWAIST <- mean(nhanesf$BMXWAIST, na.rm=TRUE)
+nhanesf <- nhanesf |> 
+  mutate(cBMXWAIST = BMXWAIST - mBMXWAIST)
+fit.ex4.1.centered <- update(fit.ex4.1, . ~ -BMXWAIST + cBMXWAIST)
+S(fit.ex4.1.centered)
+```
+```{r}
+predictorEffects(fit.ex4.1.centered) |> 
+  plot(axes=list(grid=TRUE,
+                 x=list(rug=FALSE,
+                        cBMXWAIST=list(lab="Waist circumference (cm) - centered")),
+                 y=list(lab="Fasting glucose (mmol/L)")))
+```
+Using `tbl_merge` to view the two regression output
+```{r}
+t1 <- fit.ex4.1 |> 
+  tbl_regression(intercept=TRUE,
+                 estimate_fun = \(x) style_sigfig(x, digits=4),
+                 pvalue_fun = \(x) style_pvalue(x, digits=3))
+t2 <- fit.ex4.1.centered |> 
+  tbl_regression(intercept=TRUE,
+                 estimate_fun = \(x) style_sigfig(x, digits=4),
+                 pvalue_fun = \(x) style_pvalue(x, digits=3))
+d_names <- names(t1$table_body$label)
+# names(t1$table_body$var_label) <- d_names
+# names(t2$table_body$var_label) <- d_names
+t1$table_body$variable <- d_names
+t2$table_body$variable <- d_names
+tbl_merge(tbls = list(t1, t2),
+          tab_spanner = c("**Non centered**", "**Centered**"))
+```
+
+## 4.4 SLR model with a categorical predictor
+
+Regressing fasting glucose with smoking status
+- LBDGLUSI
+- smoker
+
+```{r}
+fit.ex4.2 <- lm(LBDGLUSI ~ smoker, data=nhanesf)
+S(fit.ex4.2)
+```
+```{r}
+confint(fit.ex4.2)
+```
+This output states that:
+
+- The estimated mean fasting glucose among never smokers is 5.94 mmol/L (95% CI = 5.81, 6.07) (for a categorical predictor the intercept is the mean at the reference level).
+- Past smokers have significantly greater mean fasting glucose than never smokers (B = 0.420; 95% CI = 0.186, 0.653; p < .001).
+- Current smokers have greater mean fasting glucose than never smokers (B = 0.255; 95% CI = -0.028, 0.538; p = .077), but this difference is not statistically significant.
+
+Predictor effect plot
+```{r}
+predictorEffects(fit.ex4.2) |> 
+  plot()
+```
+```{r}
+library(emmeans)
+emmeans(fit.ex4.2, pairwise ~ smoker)
+```
+```{r}
+fit.ex4.int <- lm(LBDGLUSI ~ BMXWAIST*smoker, data=nhanesf)
+S(fit.ex4.int)
+```
+
+There is a significant interaction between smoker and waist circumference.
+
+```{r}
+predictorEffects(fit.ex4.int, ~ BMXWAIST) |> 
+  plot(axes=list(grid=TRUE,
+                 x=list(rug=FALSE,
+                        BMXWAIST=list(lab="Waist circumference (cm)")),
+                 y=list(lab="Fasting glucose (mmol/L)")),
+       lines=list(multiline=TRUE, lab="Smoking status")
+       )
+```
+The average fasting glucose is higher for current smokers compared to past and never smokers for waist circumference greater than 120cm.
+
+```{r}
+predictorEffects(fit.ex4.int, ~ smoker) |> 
+  plot(lines=list(multiline=TRUE),
+       axes=list(y=list(lab="Fasting glucose (mmol/L)")),
+       lattice=list(lattice.options=list(auto.key=list(title="MM"))))
+```
+
+```{r}
+predictorEffects(fit.ex4.int, ~ smoker) |> 
+  plot(lines=list(multiline=TRUE),
+       axes=list(y=list(lab="Fasting glucose (mmol/L)")),
+       lattice=list(auto.key=list(title="Waist circumference (cm)")))
+```
+
+
+```{r}
+df.fit.ex4.1.int <- as.data.frame(predictorEffects(fit.ex4.int, ~ smoker))
+df.fit.ex4.1.int
+```
+```{r}
+df.fit.ex4.1.int$smoker |> 
+  ggplot(aes(x=smoker, y=fit, color=factor(BMXWAIST), group=BMXWAIST)) +
+  geom_line()
+```
+## 4.4.4 Multiple DF test for a categorical predictor
+
+```{r}
+Anova(fit.ex4.2, type=3)
+```
+A type 3 test compares the regression model to a reduced model where that predictor has been removed.
+
+## 4.7 Fitting curves using polynomials
+
+```{r}
+load(here('datasets', 'unhdd2020.rmph.rData'))
+```
+
+```{r}
+unhdd |> 
+  select(mort_adult_f, educ_f) |> 
+  map(\(x) describe(x)) |> 
+  bind_rows() |> 
+  `row.names<-`(c("mortality", "educ")) |> 
+  select(-vars)
+```
+
+```{r}
+unhdd |> 
+  ggplot(aes(x=educ_f, y=mort_adult_f)) +
+  geom_point() +
+  geom_smooth()
+```
+
+There is a negative curvi-linear relationship between adult female mortality and female education level.
+
+```{r}
+unhdd_comp <- unhdd |> 
+  filter(!is.na(mort_adult_f), !is.na(educ_f))
+
+fit.poly.1 <- lm(mort_adult_f ~ educ_f, data=unhdd_comp)
+fit.poly.2 <- lm(mort_adult_f ~ poly(educ_f, 2), data=unhdd_comp)
+fit.poly.3 <- lm(mort_adult_f ~ poly(educ_f, 3), data=unhdd_comp)
+```
+
+```{r}
+S(fit.poly.1)
+```
+```{r}
+S(fit.poly.2)
+```
+```{r}
+S(fit.poly.3)
+```
+Visualise the three models
+```{r}
+predictorEffects(fit.poly.1, residuals=TRUE) |> 
+  plot()
+```
+
+```{r}
+fit.poly.2.pef <- predictorEffects(fit.poly.2, residuals=TRUE) 
+
+fit.poly.2.pef |> 
+  plot()
+```
+```{r}
+predictorEffects(fit.poly.3, residuals=TRUE) |> 
+  plot()
+```
+## 4.9 Exercises
+
+### Q 5-12
+Uses the `dig_rmph.rData` - Digitalis teaching dataset
+
+#### Q5
+
+```{r}
+
+```
+
